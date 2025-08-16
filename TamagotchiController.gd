@@ -43,19 +43,28 @@ var save_file_path = "user://tamagotchi_save.dat"
 var incubation_system: IncubationSystem
 var dialog_system: DialogSystem
 
-# Referências aos elementos da UI
+# Referências aos elementos da UI - CORRIGIDO
 @onready var feed_button: TextureButton = $FeedButton
 @onready var hunger_bar: ProgressBar = $HungerBar
 @onready var happiness_bar: ProgressBar = $HappinessBar
 @onready var pet_sprite: TextureButton = $PetSprite
-@onready var incubation_bar: ProgressBar = $IncubationBar
 
-# Elementos do sistema de diálogos
-@onready var dialog_indicator: Button = $DialogIndicator
-@onready var dialog_popup: AcceptDialog = $DialogPopup
-@onready var dialog_label: RichTextLabel = $DialogPopup/VBoxContainer/DialogText
+# Elementos do sistema de diálogos - CORRIGIDO PARA CORRESPONDER À CENA
+@onready var dialog_indicator: Button = $Button
+@onready var dialog_popup: AcceptDialog = $AcceptDialog
+@onready var dialog_label: RichTextLabel = $AcceptDialog/VBoxContainer/RichTextLabel
+
+# Barra de incubação - usando a barra de felicidade como temporária
+@onready var incubation_bar: ProgressBar = $HappinessBar
 
 func _ready():
+	print("=== INICIALIZANDO TAMAGOTCHI ===")
+	
+	# VERIFICAÇÃO DE SEGURANÇA - Verifica se todos os nós existem
+	if not verify_ui_nodes():
+		print("ERRO: Alguns nós da UI não foram encontrados!")
+		return
+	
 	# Inicializa sistemas separados
 	incubation_system = IncubationSystem.new()
 	dialog_system = DialogSystem.new()
@@ -92,19 +101,53 @@ func _ready():
 	
 	# Processa diálogos pendentes após um pequeno delay
 	await get_tree().create_timer(2.0).timeout
-	dialog_system.process_dialog_queue()
+	if dialog_system:
+		dialog_system.process_dialog_queue()
+
+# NOVA FUNÇÃO - Verifica se todos os nós necessários existem
+func verify_ui_nodes() -> bool:
+	var required_nodes = [
+		{"path": "FeedButton", "node": null},
+		{"path": "HungerBar", "node": null},
+		{"path": "HappinessBar", "node": null},
+		{"path": "PetSprite", "node": null},
+		{"path": "Button", "node": null},
+		{"path": "AcceptDialog", "node": null},
+		{"path": "AcceptDialog/VBoxContainer/RichTextLabel", "node": null}
+	]
+	
+	var all_found = true
+	
+	for node_info in required_nodes:
+		var node = get_node_or_null(node_info.path)
+		if not node:
+			print("ERRO: Nó não encontrado: ", node_info.path)
+			all_found = false
+		else:
+			print("✓ Nó encontrado: ", node_info.path)
+	
+	return all_found
 
 func setup_buttons():
 	"""Configura todos os botões"""
 	if feed_button:
-		feed_button.pressed.connect(_on_feed_button_pressed)
+		if not feed_button.pressed.is_connected(_on_feed_button_pressed):
+			feed_button.pressed.connect(_on_feed_button_pressed)
 		setup_feed_button_effects()
+	else:
+		print("AVISO: feed_button não encontrado")
 	
 	if pet_sprite:
-		pet_sprite.pressed.connect(_on_pet_clicked)
+		if not pet_sprite.pressed.is_connected(_on_pet_clicked):
+			pet_sprite.pressed.connect(_on_pet_clicked)
+	else:
+		print("AVISO: pet_sprite não encontrado")
 	
 	if dialog_indicator:
-		dialog_indicator.pressed.connect(_on_dialog_indicator_pressed)
+		if not dialog_indicator.pressed.is_connected(_on_dialog_indicator_pressed):
+			dialog_indicator.pressed.connect(_on_dialog_indicator_pressed)
+	else:
+		print("AVISO: dialog_indicator não encontrado")
 
 func setup_ui_bars():
 	"""Configura todas as barras de progresso"""
@@ -118,23 +161,25 @@ func setup_ui_bars():
 		happiness_bar.max_value = 100
 		happiness_bar.value = happiness
 	
-	if incubation_bar:
+	if incubation_bar and incubation_system:
 		incubation_system.setup_incubation_bar(incubation_bar)
 
 func _process(delta):
 	if current_state == PetState.EGG:
 		# Modo OVO: processa incubação
-		incubation_system.process(delta)
-		
-		# Verifica se chocou
-		if incubation_system.should_hatch():
-			hatch_egg()
+		if incubation_system:
+			incubation_system.process(delta)
+			
+			# Verifica se chocou
+			if incubation_system.should_hatch():
+				hatch_egg()
 	else:
 		# Modo CHOCADO: sistema normal
 		process_normal_pet(delta)
 	
 	# Processa sistema de diálogos
-	dialog_system.process(delta)
+	if dialog_system:
+		dialog_system.process(delta)
 	
 	# Atualiza as barras
 	update_display()
@@ -169,13 +214,14 @@ func hatch_egg():
 	print("🐣 O OVO CHOCOU! Seu pet nasceu!")
 	
 	# Adiciona diálogo obrigatório de nascimento
-	dialog_system.add_dialog("Olá mundo! Eu nasci! 🐣 Obrigado por cuidar de mim quando eu era apenas um ovinho.", DialogSystem.DialogPriority.CRITICAL, "first_hatch")
+	if dialog_system:
+		dialog_system.add_dialog("Olá mundo! Eu nasci! 🐣 Obrigado por cuidar de mim quando eu era apenas um ovinho.", DialogSystem.DialogPriority.CRITICAL, "first_hatch")
 	
 	update_display()
 
 func pet_egg():
 	"""Acaricia o ovo"""
-	if incubation_system.pet_egg():
+	if incubation_system and incubation_system.pet_egg():
 		attention_given += 1
 		print("🥰 Ovo acariciado! Tempo restante: ", incubation_system.get_time_remaining_formatted())
 
@@ -183,12 +229,13 @@ func update_display():
 	"""Atualiza as barras que mostram o estado atual"""
 	if current_state == PetState.EGG:
 		# Modo ovo: mostra progresso da incubação
-		incubation_system.update_display(incubation_bar, true)
+		if incubation_system:
+			incubation_system.update_display(incubation_bar, true)
 		
 		# Esconde barras de fome e felicidade
 		if hunger_bar:
 			hunger_bar.visible = false
-		if happiness_bar:
+		if happiness_bar and happiness_bar != incubation_bar:  # Evita esconder se for a mesma barra
 			happiness_bar.visible = false
 		if feed_button:
 			feed_button.visible = false
@@ -205,10 +252,12 @@ func update_display():
 			feed_button.visible = true
 		
 		# Esconde barra de incubação
-		incubation_system.update_display(incubation_bar, false)
+		if incubation_system:
+			incubation_system.update_display(incubation_bar, false)
 	
 	# Atualiza indicador de diálogo
-	dialog_system.update_dialog_indicator()
+	if dialog_system:
+		dialog_system.update_dialog_indicator()
 	
 	# Atualiza visual da evolução
 	update_evolution_visual()
@@ -225,7 +274,7 @@ func feed():
 	attention_given += 1
 	
 	# Chance de diálogo
-	if randf() < 0.1:
+	if dialog_system and randf() < 0.1:
 		dialog_system.add_dialog("Mmm, que delícia! Obrigado pela comida! 😋", DialogSystem.DialogPriority.LOW)
 	
 	print("Alimentado! Nova fome: ", int(hunger))
@@ -244,7 +293,7 @@ func play():
 	attention_given += 1
 	
 	# Chance de diálogo
-	if randf() < 0.1:
+	if dialog_system and randf() < 0.1:
 		dialog_system.add_dialog("Que divertido! Adoro brincar com você! 🎉", DialogSystem.DialogPriority.LOW)
 	
 	print("Brincando! Nova felicidade: ", int(happiness))
@@ -273,7 +322,8 @@ func check_evolution():
 		print("🌟 EVOLUÇÃO! Agora é: ", evolution_names[current_evolution])
 		
 		# Gera diálogos de evolução
-		dialog_system.generate_evolution_dialogs(current_evolution, evolution_names)
+		if dialog_system:
+			dialog_system.generate_evolution_dialogs(current_evolution, evolution_names)
 		
 		update_display()
 
@@ -299,13 +349,16 @@ func update_evolution_visual():
 		return
 	
 	if current_state == PetState.EGG:
-		pet_sprite.texture_normal = load("res://new folder/ovo.png")
+		# Verifica se o arquivo existe antes de carregar
+		if ResourceLoader.exists("res://new folder/ovo 1.png"):
+			pet_sprite.texture_normal = load("res://new folder/ovo 1.png")
+		elif ResourceLoader.exists("res://new folder/ovo.png"):
+			pet_sprite.texture_normal = load("res://new folder/ovo.png")
 	else:
 		match current_evolution:
-			0:
-				pet_sprite.texture_normal = load("res://new folder/lagartixa.png")
-			1:
-				pet_sprite.texture_normal = load("res://new folder/lagartixa.png")
+			0, 1:  # Bebê e Jovem usam a mesma sprite
+				if ResourceLoader.exists("res://new folder/lagartixa.png"):
+					pet_sprite.texture_normal = load("res://new folder/lagartixa.png")
 
 # === CALLBACKS DOS BOTÕES ===
 
@@ -319,7 +372,8 @@ func _on_pet_clicked():
 		play()
 
 func _on_dialog_indicator_pressed():
-	dialog_system.process_dialog_queue()
+	if dialog_system:
+		dialog_system.process_dialog_queue()
 
 # === EFEITOS VISUAIS DO BOTÃO ===
 
@@ -327,6 +381,17 @@ func setup_feed_button_effects():
 	if not feed_button:
 		return
 	
+	# Desconecta sinais existentes para evitar duplicatas
+	if feed_button.mouse_entered.is_connected(_on_feed_button_hover_enter):
+		feed_button.mouse_entered.disconnect(_on_feed_button_hover_enter)
+	if feed_button.mouse_exited.is_connected(_on_feed_button_hover_exit):
+		feed_button.mouse_exited.disconnect(_on_feed_button_hover_exit)
+	if feed_button.button_down.is_connected(_on_feed_button_pressed_visual):
+		feed_button.button_down.disconnect(_on_feed_button_pressed_visual)
+	if feed_button.button_up.is_connected(_on_feed_button_released_visual):
+		feed_button.button_up.disconnect(_on_feed_button_released_visual)
+	
+	# Conecta novamente
 	feed_button.mouse_entered.connect(_on_feed_button_hover_enter)
 	feed_button.mouse_exited.connect(_on_feed_button_hover_exit)
 	feed_button.button_down.connect(_on_feed_button_pressed_visual)
@@ -335,6 +400,8 @@ func setup_feed_button_effects():
 	feed_button.pivot_offset = Vector2(feed_button.size.x / 2, feed_button.size.y / 2)
 
 func _on_feed_button_hover_enter():
+	if not feed_button:
+		return
 	var tween = create_tween()
 	tween.set_ease(Tween.EASE_OUT)
 	tween.set_trans(Tween.TRANS_BACK)
@@ -342,17 +409,23 @@ func _on_feed_button_hover_enter():
 	tween.parallel().tween_property(feed_button, "modulate", Color(1.3, 1.3, 1.3), 0.2)
 
 func _on_feed_button_hover_exit():
+	if not feed_button:
+		return
 	var tween = create_tween()
 	tween.set_ease(Tween.EASE_OUT)
 	tween.tween_property(feed_button, "scale", Vector2(1.0, 1.0), 0.2)
 	tween.parallel().tween_property(feed_button, "modulate", Color.WHITE, 0.2)
 
 func _on_feed_button_pressed_visual():
+	if not feed_button:
+		return
 	var tween = create_tween()
 	tween.tween_property(feed_button, "scale", Vector2(0.9, 0.9), 0.1)
 	tween.parallel().tween_property(feed_button, "modulate", Color(0.7, 0.7, 0.7), 0.1)
 
 func _on_feed_button_released_visual():
+	if not feed_button:
+		return
 	var tween = create_tween()
 	tween.set_ease(Tween.EASE_OUT)
 	
@@ -378,14 +451,19 @@ func save_game():
 		"last_save_time": Time.get_unix_time_from_system()
 	}
 	
-	# Adiciona dados dos sistemas
-	save_data.merge(incubation_system.get_save_data())
-	save_data.merge(dialog_system.get_save_data())
+	# Adiciona dados dos sistemas com verificação de segurança
+	if incubation_system:
+		save_data.merge(incubation_system.get_save_data())
+	if dialog_system:
+		save_data.merge(dialog_system.get_save_data())
 	
 	var file = FileAccess.open(save_file_path, FileAccess.WRITE)
 	if file:
 		file.store_string(JSON.stringify(save_data))
 		file.close()
+		print("Jogo salvo com sucesso!")
+	else:
+		print("ERRO: Não foi possível salvar o jogo")
 
 func load_game():
 	"""Carrega o jogo salvo"""
@@ -419,9 +497,11 @@ func load_game():
 	current_evolution = save_data.get("current_evolution", 0)
 	current_state = save_data.get("current_state", PetState.EGG)
 	
-	# Carrega dados dos sistemas
-	incubation_system.load_save_data(save_data)
-	dialog_system.load_save_data(save_data)
+	# Carrega dados dos sistemas com verificação de segurança
+	if incubation_system:
+		incubation_system.load_save_data(save_data)
+	if dialog_system:
+		dialog_system.load_save_data(save_data)
 	
 	# Processa tempo offline
 	if save_data.has("last_save_time"):
@@ -433,9 +513,10 @@ func load_game():
 		
 		# Processa sistemas offline
 		if current_state == PetState.EGG:
-			incubation_system.process_offline_time(time_offline)
-			if incubation_system.should_hatch():
-				hatch_egg()
+			if incubation_system:
+				incubation_system.process_offline_time(time_offline)
+				if incubation_system.should_hatch():
+					hatch_egg()
 		else:
 			# Aplica decay normal
 			hunger += offline_hunger_speed * time_offline
@@ -447,9 +528,12 @@ func load_game():
 				happiness = 0
 		
 		# Processa diálogos offline
-		dialog_system.process_offline_dialogs(hours_offline, times_hungry, attention_given)
+		if dialog_system:
+			dialog_system.process_offline_dialogs(hours_offline, times_hungry, attention_given)
 		
 		print("Tempo offline processado!")
+	
+	print("Jogo carregado com sucesso!")
 
 func _notification(what):
 	"""Salva quando o jogo é fechado"""
